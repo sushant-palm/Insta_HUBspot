@@ -1,52 +1,70 @@
-const express = require('express');
+const http = require('http');
 const axios = require('axios');
 require('dotenv').config();
 
-const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+const server = http.createServer(async (req, res) => {
+  if (req.method === 'POST' && req.url === '/create-ticket') {
+    let body = '';
 
-app.post('/create-ticket', async (req, res) => {
-  const { sender, message } = req.body;
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
 
-  if (!sender || !message) {
-    return res.status(400).json({ error: 'Missing sender or message' });
-  }
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const { sender, message } = data;
 
-  try {
-    const response = await axios.post(
-      'https://api.hubapi.com/crm/v3/objects/tickets',
-      {
-        properties: {
-          subject: `Instagram DM from ${sender}`,
-          content: message,
-          hs_pipeline: "0",         // default pipeline
-          hs_pipeline_stage: "1"    // default stage
+        if (!sender || !message) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Missing sender or message' }));
         }
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.HUBSPOT_PRIVATE_APP_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
+
+        console.log("Using token:", process.env.HUBSPOT_PRIVATE_APP_TOKEN);
+
+        const hubspotResponse = await axios.post(
+          'https://api.hubapi.com/crm/v3/objects/tickets',
+          {
+            properties: {
+              subject: `Instagram DM from ${sender}`,
+              content: message,
+              hs_pipeline: "0",
+              hs_pipeline_stage: "1"
+            }
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.HUBSPOT_PRIVATE_APP_TOKEN}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          message: 'Ticket created successfully',
+          ticketId: hubspotResponse.data.id
+        }));
+      } catch (err) {
+        console.error(err.response?.data || err.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          message: 'Failed to create ticket',
+          error: err.response?.data || err.message
+        }));
       }
-    );
-
-    return res.status(200).json({
-      message: 'Ticket created successfully',
-      ticketId: response.data.id
     });
-
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    return res.status(500).json({
-      message: 'Failed to create ticket',
-      error: err.response?.data || err.message
-    });
+  } else if (req.method === 'GET' && req.url === '/healthz') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('OK');
+  } else {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+server.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
