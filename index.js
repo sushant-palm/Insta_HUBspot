@@ -1,70 +1,43 @@
-const http = require('http');
-const axios = require('axios');
 require('dotenv').config();
+const express = require('express');
+const axios = require('axios');
 
-const PORT = process.env.PORT || 3000;
+const app = express();
+app.use(express.json());
 
-const server = http.createServer(async (req, res) => {
-  if (req.method === 'POST' && req.url === '/create-ticket') {
-    let body = '';
+const HUBSPOT_URL = 'https://api.hubapi.com/crm/v3/objects/tickets';
 
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
+app.post('/webhook', async (req, res) => {
+  try {
+    const messageText = req.body.message || "No message provided";
+    const senderId = req.body.sender_id || "Unknown user";
 
-    req.on('end', async () => {
-      try {
-        const data = JSON.parse(body);
-        const { sender, message } = data;
+    const ticketData = {
+      properties: {
+        subject: `Instagram DM from ${senderId}`,
+        content: messageText,
+        hs_pipeline: "0",
+        hs_pipeline_stage: "1"
+      }
+    };
 
-        if (!sender || !message) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'Missing sender or message' }));
-        }
-
-        console.log("Using token:", process.env.HUBSPOT_PRIVATE_APP_TOKEN);
-
-        const hubspotResponse = await axios.post(
-          'https://api.hubapi.com/crm/v3/objects/tickets',
-          {
-            properties: {
-              subject: `Instagram DM from ${sender}`,
-              content: message,
-              hs_pipeline: "0",
-              hs_pipeline_stage: "1"
-            }
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.HUBSPOT_PRIVATE_APP_TOKEN}`,
-              'Content-Type': 'application/json'
-            }
-          }
-        );
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          message: 'Ticket created successfully',
-          ticketId: hubspotResponse.data.id
-        }));
-      } catch (err) {
-        console.error(err.response?.data || err.message);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          message: 'Failed to create ticket',
-          error: err.response?.data || err.message
-        }));
+    const response = await axios.post(HUBSPOT_URL, ticketData, {
+      headers: {
+        Authorization: `Bearer ${process.env.HUBSPOT_TOKEN}`,
+        'Content-Type': 'application/json'
       }
     });
-  } else if (req.method === 'GET' && req.url === '/healthz') {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('OK');
-  } else {
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found' }));
+
+    console.log('✅ Ticket created with ID:', response.data.id);
+    res.status(200).send({ success: true, ticketId: response.data.id });
+
+  } catch (error) {
+    console.error('❌ Error creating ticket:', error.response?.data || error.message);
+    res.status(500).send({ success: false, error: error.response?.data || error.message });
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
